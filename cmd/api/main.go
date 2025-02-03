@@ -2,6 +2,9 @@ package main
 
 import (
 	"auth-go/internal/config"
+	"auth-go/internal/handler"
+	"auth-go/internal/repository"
+	"auth-go/internal/service"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -25,23 +28,30 @@ func main() {
 		return
 	}
 
-	router := gin.Default()
-
 	db, err := config.New(cfg)
 
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v\n", err)
 	}
 
+	if err := config.InitDB(db); err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
+
 	defer db.Close()
 
 	log.Print("Database connected")
 
-	router.GET("/", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"message": "Welcome to the application!",
-		})
-	})
+	router := gin.Default()
+
+	userRepo := repository.NewUserRepository(db)
+	userService := service.NewUserService(userRepo)
+	userHandler := handler.NewUserHandler(userService)
+
+	api := router.Group("/api/v1")
+	{
+		api.POST("/register", userHandler.RegisterUser) // POST /api/v1/register
+	}
 
 	fmt.Printf("Starting server on %s\n", cfg.Addr)
 	if err := router.Run(cfg.Addr); err != nil {
