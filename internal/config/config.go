@@ -1,18 +1,14 @@
 package config
 
 import (
-	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"time"
 
 	_ "github.com/lib/pq" // Import the PostgreSQL driver
 )
-
-type Application struct {
-	Config Config
-}
 
 type Config struct {
 	Addr     string
@@ -26,7 +22,15 @@ type DBConfig struct {
 	MaxConnLifetime time.Duration
 }
 
-func LoadConfig(port string, dbAddr string) (*Config, error) {
+type RedisConfig struct {
+	addr     string
+	password string
+	db       int
+}
+
+func LoadPostgresConfig() (*Config, error) {
+	port := os.Getenv("PORT")
+	dbAddr := os.Getenv("DB_ADDR")
 	maxOpenConns, err := getEnvInt("DB_MAX_OPEN_CONNS", 30)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse DB_MAX_OPEN_CONNS: %v", err)
@@ -55,6 +59,31 @@ func LoadConfig(port string, dbAddr string) (*Config, error) {
 	return cfg, nil
 }
 
+func LoadRedisConfig() (*RedisConfig, error) {
+	addr := os.Getenv("REDIS_ADDR")
+	if addr == "" {
+		log.Fatal("Redis address is blank")
+	}
+
+	password := os.Getenv("REDIS_PASSWORD")
+	if password == "" {
+		log.Fatal("Redis password is blank")
+	}
+
+	db, err := getEnvInt("REDIS_DB", 0)
+	if err != nil {
+		log.Fatal("failed to parse REDIS_DB")
+	}
+
+	redisConfig := &RedisConfig{
+		addr:     addr,
+		password: password,
+		db:       db,
+	}
+
+	return redisConfig, nil
+}
+
 func getEnvInt(key string, defaultValue int) (int, error) {
 	valueStr := os.Getenv(key)
 	if valueStr == "" {
@@ -77,22 +106,4 @@ func getEnvDuration(key string, defaultValue string) (time.Duration, error) {
 		return 0, fmt.Errorf("invalid duration value for %s: %v", key, err)
 	}
 	return duration, nil
-}
-
-func New(cfg *Config) (*sql.DB, error) {
-	db, err := sql.Open("postgres", cfg.DBConfig.Addr)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database connection: %v", err)
-	}
-
-	db.SetMaxOpenConns(cfg.DBConfig.MaxOpenConns)
-	db.SetMaxIdleConns(cfg.DBConfig.MaxIdleConns)
-	db.SetConnMaxLifetime(cfg.DBConfig.MaxConnLifetime)
-
-	if err := db.Ping(); err != nil {
-		return nil, fmt.Errorf("failed to ping database: %v", err)
-	}
-
-	return db, nil
 }

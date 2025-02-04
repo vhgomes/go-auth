@@ -7,44 +7,37 @@ import (
 	"auth-go/internal/service"
 	"fmt"
 	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
 	"log"
-	"os"
 )
 
 func main() {
-	err := godotenv.Load()
 
+	cfg, err := config.LoadPostgresConfig()
 	if err != nil {
-		log.Fatal("Error loading .env file")
-	}
-
-	port := os.Getenv("PORT")
-	dbAddr := os.Getenv("DB_ADDR")
-
-	cfg, err := config.LoadConfig(port, dbAddr)
-	if err != nil {
-		fmt.Printf("Failed to load config: %v\n", err)
+		fmt.Printf("Failed to load Postgress config: %v\n", err)
 		return
 	}
 
-	db, err := config.New(cfg)
+	db, err := config.InitPostgres(cfg)
+	if err != nil {
+		fmt.Printf("Failed to connect to Postgres database: %v\n", err)
+	}
 
-	redisClient := config.InitRedis()
+	rediscfg, err := config.LoadRedisConfig()
+	if err != nil {
+		fmt.Printf("Failed to load Redis config %v\n", err)
+	}
+
+	redisClient, err := config.InitRedis(rediscfg)
 	defer redisClient.Close()
 
 	if err != nil {
 		fmt.Printf("Failed to init redis: %v\n", err)
 	}
 
-	if err != nil {
-		log.Fatalf("Failed to connect to database: %v\n", err)
-	}
-
 	if err := config.InitDB(db); err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
-
 	defer db.Close()
 
 	log.Print("Database connected")

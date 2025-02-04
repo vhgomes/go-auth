@@ -28,14 +28,32 @@ func InitDB(db *sql.DB) error {
 	return nil
 }
 
-func InitRedis() *redis.Client {
+func InitPostgres(cfg *Config) (*sql.DB, error) {
+	db, err := sql.Open("postgres", cfg.DBConfig.Addr)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database connection: %v", err)
+	}
+
+	db.SetMaxOpenConns(cfg.DBConfig.MaxOpenConns)
+	db.SetMaxIdleConns(cfg.DBConfig.MaxIdleConns)
+	db.SetConnMaxLifetime(cfg.DBConfig.MaxConnLifetime)
+
+	if err := db.Ping(); err != nil {
+		return nil, fmt.Errorf("failed to ping database: %v", err)
+	}
+
+	return db, nil
+}
+
+func InitRedis(config *RedisConfig) (*redis.Client, error) {
 
 	var ctx = context.Background()
 
 	client := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379", // Redis server address
-		Password: "",               // No password
-		DB:       0,                // Default DB
+		Addr:     config.addr,     // Redis server address
+		Password: config.password, // No password
+		DB:       config.db,       // Default DB
 	})
 
 	// Test the connection
@@ -46,5 +64,5 @@ func InitRedis() *redis.Client {
 
 	log.Print("Redis created!")
 
-	return client
+	return client, nil
 }
