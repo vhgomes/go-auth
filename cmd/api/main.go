@@ -30,6 +30,13 @@ func main() {
 
 	db, err := config.New(cfg)
 
+	redisClient := config.InitRedis()
+	defer redisClient.Close()
+
+	if err != nil {
+		fmt.Printf("Failed to init redis: %v\n", err)
+	}
+
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v\n", err)
 	}
@@ -44,14 +51,14 @@ func main() {
 
 	router := gin.Default()
 
-	userRepo := repository.NewUserRepository(db)
+	userRepo := repository.NewUserRepository(db, redisClient)
 	userService := service.NewUserService(userRepo)
 	userHandler := handler.NewUserHandler(userService)
 
 	api := router.Group("/api/v1")
 	{
 		api.POST("/register", userHandler.RegisterUser) // POST /api/v1/register
-		api.POST("/login")
+		api.POST("/login", userHandler.LoginUser)
 	}
 
 	fmt.Printf("Starting server on %s\n", cfg.Addr)

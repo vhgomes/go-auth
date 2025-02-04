@@ -1,8 +1,10 @@
 package config
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"github.com/redis/go-redis/v9"
 	"log"
 )
 
@@ -24,4 +26,25 @@ func InitDB(db *sql.DB) error {
 
 	log.Println("Table 'users' created or already exists.")
 	return nil
+}
+
+func InitRedis() *redis.Client {
+
+	var ctx = context.Background()
+
+	client := redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379", // Redis server address
+		Password: "",               // No password
+		DB:       0,                // Default DB
+	})
+
+	// Test the connection
+	_, err := client.Ping(ctx).Result()
+	if err != nil {
+		panic(err)
+	}
+
+	log.Print("Redis created!")
+
+	return client
 }
