@@ -35,12 +35,11 @@ func main() {
 		fmt.Printf("Failed to init redis: %v\n", err)
 	}
 
-	if err := config.InitDB(db); err != nil {
+	db, err = config.InitDB(db)
+	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	defer db.Close()
-
-	log.Print("Database connected")
 
 	router := gin.Default()
 
@@ -50,7 +49,7 @@ func main() {
 
 	api := router.Group("/api/v1")
 	{
-		api.POST("/register", userHandler.RegisterUser) // POST /api/v1/register
+		api.POST("/register", userHandler.RegisterUser)
 		api.POST("/login", userHandler.LoginUser)
 	}
 

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/joho/godotenv"
 	"log"
 	"os"
 	"strconv"
@@ -29,8 +30,11 @@ type RedisConfig struct {
 }
 
 func LoadPostgresConfig() (*Config, error) {
+	err := godotenv.Load()
+
 	port := os.Getenv("PORT")
 	dbAddr := os.Getenv("DB_ADDR")
+
 	maxOpenConns, err := getEnvInt("DB_MAX_OPEN_CONNS", 30)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse DB_MAX_OPEN_CONNS: %v", err)
@@ -60,20 +64,20 @@ func LoadPostgresConfig() (*Config, error) {
 }
 
 func LoadRedisConfig() (*RedisConfig, error) {
+	err := godotenv.Load()
 	addr := os.Getenv("REDIS_ADDR")
 	if addr == "" {
 		log.Fatal("Redis address is blank")
 	}
 
 	password := os.Getenv("REDIS_PASSWORD")
-	if password == "" {
-		log.Fatal("Redis password is blank")
-	}
 
 	db, err := getEnvInt("REDIS_DB", 0)
 	if err != nil {
 		log.Fatal("failed to parse REDIS_DB")
 	}
+
+	log.Println(addr, password, db)
 
 	redisConfig := &RedisConfig{
 		addr:     addr,

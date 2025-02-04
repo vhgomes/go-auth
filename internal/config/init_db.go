@@ -8,8 +8,7 @@ import (
 	"log"
 )
 
-func InitDB(db *sql.DB) error {
-	// SQL statement to create the users table
+func InitDB(db *sql.DB) (*sql.DB, error) {
 	createTableSQL := `
 	CREATE TABLE IF NOT EXISTS users (
 		id SERIAL PRIMARY KEY,
@@ -18,14 +17,13 @@ func InitDB(db *sql.DB) error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
-	// Execute the SQL statement
 	_, err := db.Exec(createTableSQL)
 	if err != nil {
-		return fmt.Errorf("failed to create table: %v", err)
+		return nil, fmt.Errorf("failed to create table: %v", err)
 	}
 
 	log.Println("Table 'users' created or already exists.")
-	return nil
+	return db, nil
 }
 
 func InitPostgres(cfg *Config) (*sql.DB, error) {
