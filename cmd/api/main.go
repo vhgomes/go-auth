@@ -51,6 +51,7 @@ func main() {
 	api := router.Group("/api/v1")
 	{
 		api.POST("/register", userHandler.RegisterUser) // POST /api/v1/register
+		api.POST("/login")
 	}
 
 	fmt.Printf("Starting server on %s\n", cfg.Addr)

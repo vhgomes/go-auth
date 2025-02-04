@@ -13,3 +13,7 @@ func NewUserService(userRepo *repository.UserRepository) *UserService {
 func (s *UserService) RegisterUser(username string, password string) error {
 	return s.userRepo.RegisterUser(username, password)
 }
+
+func (s *UserService) LoginUser(username, password string) (string, error) {
+	return s.userRepo.LoginUser(username, password)
+}

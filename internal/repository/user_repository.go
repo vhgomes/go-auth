@@ -40,3 +40,20 @@ func (r *UserRepository) RegisterUser(username string, password string) error {
 
 	return nil
 }
+
+func (r *UserRepository) LoginUser(username string, password string) (string, error) {
+	var queryUser = `SELECT username, password from users WHERE username = $1`
+	var dbpass string
+	err := r.db.QueryRow(queryUser, username).Scan(&username, &dbpass)
+	if err != nil {
+		return "", errors.New("username do not exist")
+	}
+
+	if !utils.CheckHash(password, dbpass) {
+		return "", errors.New("invalid password")
+	}
+
+	sessionToken := utils.GenerateToken(32)
+
+	return sessionToken, nil
+}
