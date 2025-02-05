@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/redis/go-redis/v9"
+	"log"
 	"time"
 )
 
@@ -50,9 +51,8 @@ func (r *UserRepository) RegisterUser(username string, password string) error {
 
 func (r *UserRepository) LoginUser(username string, password string) (string, error) {
 	ctx := context.Background()
+	var dbpass, userId string
 	var queryUser = `SELECT id, username, password from users WHERE username = $1`
-	var dbpass string
-	var userId string
 	err := r.db.QueryRow(queryUser, username).Scan(&userId, &username, &dbpass)
 	if err != nil {
 		return "", errors.New("username do not exist")
@@ -62,26 +62,43 @@ func (r *UserRepository) LoginUser(username string, password string) (string, er
 		return "", errors.New("invalid password")
 	}
 
-	sessionToken := utils.GenerateToken(32)
+	token, err := r.GetToken(ctx, userId)
+	if token != "" {
+		log.Println("Retrieved token is", token)
+		return token, nil
+	}
 
-	err = r.redis.Set(ctx, sessionToken, userId, time.Hour).Err()
+	sessionToken := utils.GenerateToken(32)
+	log.Println("Generated token is", sessionToken)
+
+	err = r.redis.Set(ctx, userId, sessionToken, time.Hour).Err()
 
 	if err != nil {
 		return "", fmt.Errorf("failed to store session in Redis: %v", err)
 	}
 
+	log.Println("Token added to the redis", sessionToken)
+
 	return sessionToken, nil
 }
 
-func (r *UserRepository) ValidateSession(sessionToken string) (int, error) {
-	ctx := context.Background()
-	userID, err := r.redis.Get(ctx, sessionToken).Int()
+func (r *UserRepository) GetToken(ctx context.Context, userId string) (string, error) {
+	tokenExists, err := r.redis.Get(ctx, userId).Result()
 	if err != nil {
 		if err == redis.Nil {
-			return 0, errors.New("invalid session token")
+			log.Printf("Token for user ID '%s' does not exist", userId)
+			return "", nil
 		}
-		return 0, err
+		log.Printf("Failed to get token from Redis for user ID '%s': %v", userId, err)
+		return "", err
 	}
 
-	return userID, nil
+	if tokenExists == "" {
+		log.Printf("Token for user ID '%s' is empty", userId)
+		return "", nil
+	}
+
+	log.Printf("Retrieved token '%s' for user ID '%s'", tokenExists, userId)
+
+	return tokenExists, nil
 }
