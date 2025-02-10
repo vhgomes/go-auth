@@ -3,6 +3,7 @@ package handler
 import (
 	"auth-go/internal/service"
 	"github.com/gin-gonic/gin"
+	"log"
 	"net/http"
 )
 
@@ -68,4 +69,39 @@ func (h *UserHandler) LoginUser(c *gin.Context) {
 	)
 
 	c.JSON(http.StatusCreated, gin.H{"message": "User logged in successfully"})
+}
+
+func (h *UserHandler) Logout(c *gin.Context) {
+	if c.Request.Method != http.MethodGet {
+		c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "Method not allowed"})
+		return
+	}
+
+	sessionToken, err := c.Cookie("session_token")
+	if err != nil || sessionToken == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Session cookie is empty"})
+		return
+	}
+
+	log.Printf("Session Token: %s", sessionToken)
+
+	// err = h.userService.LogoutUser(sessionToken)
+	_, err = h.userService.LogoutUser(sessionToken)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.SetCookie(
+		"session_token", // Cookie name
+		"",              // Empty value
+		-1,              // Max age: -1 (expire immediately)
+		"/",             // Path
+		"",              // Domain
+		false,           // Secure
+		true,            // HttpOnly
+	)
+
+	c.JSON(http.StatusOK, gin.H{"message": "Logged out successfully"})
 }

@@ -49,56 +49,117 @@ func (r *UserRepository) RegisterUser(username string, password string) error {
 	return nil
 }
 
-func (r *UserRepository) LoginUser(username string, password string) (string, error) {
+func (r *UserRepository) LoginUser(username, password string) (string, error) {
 	ctx := context.Background()
-	var dbpass, userId string
-	var queryUser = `SELECT id, username, password from users WHERE username = $1`
-	err := r.db.QueryRow(queryUser, username).Scan(&userId, &username, &dbpass)
+	var dbpass, userID string
+
+	queryUser := `SELECT id, password FROM users WHERE username = $1`
+	err := r.db.QueryRowContext(ctx, queryUser, username).Scan(&userID, &dbpass)
 	if err != nil {
-		return "", errors.New("username do not exist")
+		return "", errors.New("username does not exist")
 	}
 
 	if !utils.CheckHash(password, dbpass) {
 		return "", errors.New("invalid password")
 	}
 
-	token, err := r.GetToken(ctx, userId)
-	if token != "" {
-		log.Println("Retrieved token is", token)
-		return token, nil
+	existingToken, err := r.GetTokenByUserId(ctx, userID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get existing token: %v", err)
+	}
+
+	if existingToken != "" {
+		log.Println("Retrieved existing token:", existingToken)
+		return existingToken, nil
 	}
 
 	sessionToken := utils.GenerateToken(32)
-	log.Println("Generated token is", sessionToken)
+	log.Println("Generated new token:", sessionToken)
 
-	err = r.redis.Set(ctx, userId, sessionToken, time.Hour).Err()
-
+	err = r.redis.HSet(ctx, "user_sessions", sessionToken, userID).Err()
 	if err != nil {
 		return "", fmt.Errorf("failed to store session in Redis: %v", err)
 	}
 
-	log.Println("Token added to the redis", sessionToken)
+	err = r.redis.Expire(ctx, sessionToken, time.Hour).Err()
+	if err != nil {
+		return "", fmt.Errorf("failed to set session expiration: %v", err)
+	}
 
+	log.Println("Token added to Redis:", sessionToken)
 	return sessionToken, nil
 }
 
-func (r *UserRepository) GetToken(ctx context.Context, userId string) (string, error) {
-	tokenExists, err := r.redis.Get(ctx, userId).Result()
-	if err != nil {
-		if err == redis.Nil {
-			log.Printf("Token for user ID '%s' does not exist", userId)
-			return "", nil
+func (r *UserRepository) GetTokenByUserId(ctx context.Context, userId string) (string, error) {
+	log.Println("UserID:", userId)
+
+	var sessionToken string
+	iter := r.redis.HScan(ctx, "user_sessions", 0, "*", 0).Iterator()
+	for iter.Next(ctx) {
+		key := iter.Val()
+		if iter.Next(ctx) {
+			value := iter.Val()
+			if value == userId {
+				sessionToken = key
+				break
+			}
 		}
-		log.Printf("Failed to get token from Redis for user ID '%s': %v", userId, err)
+	}
+
+	if err := iter.Err(); err != nil {
+		log.Printf("Failed to scan Redis hash: %v", err)
 		return "", err
 	}
 
-	if tokenExists == "" {
-		log.Printf("Token for user ID '%s' is empty", userId)
+	if sessionToken == "" {
+		log.Printf("No session token found for user ID: '%s'", userId)
 		return "", nil
 	}
 
-	log.Printf("Retrieved token '%s' for user ID '%s'", tokenExists, userId)
+	log.Printf("Retrieved token '%s' for user ID '%s'", sessionToken, userId)
+	return sessionToken, nil
+}
 
-	return tokenExists, nil
+//func (r *UserRepository) GetTokenBySession(ctx context.Context, sessionToken string) (string, error) {
+//	log.Println("Session Token:", sessionToken)
+//
+//	userID, err := r.redis.HGet(ctx, "user_sessions", sessionToken).Result()
+//	if err != nil {
+//		if err == redis.Nil {
+//			log.Printf("No session token found: '%s'", sessionToken)
+//			return "", nil
+//		}
+//		log.Printf("Failed to get token from Redis: '%s', Error %v", sessionToken, err)
+//		return "", err
+//	}
+//
+//	if userID == "" {
+//		log.Printf("Session token not found")
+//		return "", nil
+//	}
+//
+//	log.Printf("Retrieved user ID '%s' for token '%s'", userID, sessionToken)
+//	return userID, nil
+//}
+
+func (r *UserRepository) LogoutUser(sessionToken string) (string, error) {
+	ctx := context.Background()
+
+	userID, err := r.redis.HGet(ctx, "user_sessions", sessionToken).Result()
+	if err != nil {
+		if err == redis.Nil {
+			log.Printf("No session token found: '%s'", sessionToken)
+			return "", nil
+		}
+		return "", err
+	}
+
+	_, err = r.redis.HDel(ctx, "user_sessions", sessionToken).Result()
+	if err != nil {
+		log.Printf("Failed to delete session token: %v", err)
+		return "", err
+	}
+
+	log.Printf("Session token deleted: '%s' for user ID '%s'", sessionToken, userID)
+	return userID, nil
 }

@@ -17,3 +17,7 @@ func (s *UserService) RegisterUser(username string, password string) error {
 func (s *UserService) LoginUser(username, password string) (string, error) {
 	return s.userRepo.LoginUser(username, password)
 }
+
+func (s *UserService) LogoutUser(sessionToken string) (string, error) {
+	return s.userRepo.LogoutUser(sessionToken)
+}

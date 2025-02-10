@@ -51,6 +51,7 @@ func main() {
 	{
 		api.POST("/register", userHandler.RegisterUser)
 		api.POST("/login", userHandler.LoginUser)
+		api.GET("/logout", userHandler.Logout)
 	}
 
 	fmt.Printf("Starting server on %s\n", cfg.Addr)
