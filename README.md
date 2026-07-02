@@ -1,4 +1,3 @@
-```markdown
 # Go Auth Boilerplate
 
 Um boilerplate de autenticação genérico, robusto e performático desenvolvido em Go. Este projeto foi estruturado para servir como base reutilizável em qualquer novo ecossistema que necessite de controle de acesso seguro.
