@@ -3,9 +3,11 @@ package main
 import (
 	"auth-go/internal/config"
 	"auth-go/internal/handler"
+	"auth-go/internal/middleware"
 	"auth-go/internal/repository"
 	"auth-go/internal/service"
 	"log"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -44,17 +46,26 @@ func main() {
 
 	router := gin.Default()
 
-	userRepo := repository.NewUserRepository(db, redisClient)
+	userRepo := repository.NewPgUserRepository(db, redisClient)
 	userService := service.NewUserService(userRepo)
-	userHandler := handler.NewUserHandler(userService)
+	userHandler := handler.NewUserHandler(userService, cfg)
+	rateLimiter := middleware.NewRateLimiter(redisClient, 5, time.Minute) // 5 tentativas/minuto por IP
 
 	api := router.Group("/api/v1")
 	{
-		api.POST("/register", userHandler.RegisterUser)
-		api.POST("/login", userHandler.LoginUser)
-		api.GET("/logout", userHandler.Logout)
-	}
+		public := api.Group("/")
+		public.Use(rateLimiter.Limit())
+		{
+			public.POST("/register", userHandler.RegisterUser)
+			public.POST("/login", userHandler.LoginUser)
+		}
 
+		protected := api.Group("/")
+		protected.Use(rateLimiter.Limit(), middleware.RequireAuth(userRepo))
+		{
+			protected.GET("/logout", userHandler.Logout)
+		}
+	}
 	log.Printf("Starting server on %s\n", cfg.Addr)
 	if err := router.Run(cfg.Addr); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

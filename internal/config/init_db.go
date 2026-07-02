@@ -4,8 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/redis/go-redis/v9"
 	"log"
+
+	"github.com/redis/go-redis/v9"
 )
 
 func InitDB(db *sql.DB) (*sql.DB, error) {
@@ -49,15 +50,14 @@ func InitRedis(config *RedisConfig) (*redis.Client, error) {
 	var ctx = context.Background()
 
 	client := redis.NewClient(&redis.Options{
-		Addr:     config.addr,     // Redis server address
-		Password: config.password, // No password
-		DB:       config.db,       // Default DB
+		Addr:     config.addr,
+		Password: config.password,
+		DB:       config.db,
 	})
 
-	// Test the connection
 	_, err := client.Ping(ctx).Result()
 	if err != nil {
-		panic(err)
+		log.Fatalf("failed to ping Redis: %v", err)
 	}
 
 	log.Print("Redis created!")

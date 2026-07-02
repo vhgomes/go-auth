@@ -1,26 +1,24 @@
 package handler
 
 import (
+	"auth-go/internal/config"
 	"auth-go/internal/service"
-	"github.com/gin-gonic/gin"
 	"log"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 type UserHandler struct {
 	userService *service.UserService
+	cfg         *config.Config
 }
 
-func NewUserHandler(userService *service.UserService) *UserHandler {
-	return &UserHandler{userService: userService}
+func NewUserHandler(userService *service.UserService, cfg *config.Config) *UserHandler {
+	return &UserHandler{userService: userService, cfg: cfg}
 }
 
 func (h *UserHandler) RegisterUser(c *gin.Context) {
-	if c.Request.Method != http.MethodPost {
-		c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "Method not allowed"})
-		return
-	}
-
 	username := c.PostForm("username")
 	password := c.PostForm("password")
 
@@ -29,7 +27,7 @@ func (h *UserHandler) RegisterUser(c *gin.Context) {
 		return
 	}
 
-	err := h.userService.RegisterUser(username, password)
+	err := h.userService.RegisterUser(c.Request.Context(), username, password)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -39,11 +37,6 @@ func (h *UserHandler) RegisterUser(c *gin.Context) {
 }
 
 func (h *UserHandler) LoginUser(c *gin.Context) {
-	if c.Request.Method != http.MethodPost {
-		c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "Method not allowed"})
-		return
-	}
-
 	username := c.PostForm("username")
 	password := c.PostForm("password")
 
@@ -52,31 +45,27 @@ func (h *UserHandler) LoginUser(c *gin.Context) {
 		return
 	}
 
-	sessionToken, err := h.userService.LoginUser(username, password)
+	sessionToken, err := h.userService.LoginUser(c.Request.Context(), username, password)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
+	c.SetSameSite(http.SameSiteLaxMode) // precisa ser chamado antes do SetCookie
 	c.SetCookie(
-		"session_token", // Cookie name
-		sessionToken,    // Cookie value (the session token)
-		3600,            // Max age in seconds (e.g., 1 hour)
-		"/",             // Path
-		"",              // Domain (leave empty for current domain)
-		false,           // Secure (set to true if using HTTPS)
-		true,            // HttpOnly (prevents client-side JavaScript from accessing the cookie)
+		"session_token",
+		sessionToken,
+		3600,
+		"/",
+		"",
+		h.cfg.CookieSecure, // vem de env: true em produção, false em dev local
+		true,               // httpOnly continua true
 	)
 
-	c.JSON(http.StatusCreated, gin.H{"message": "User logged in successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "User logged in successfully"})
 }
 
 func (h *UserHandler) Logout(c *gin.Context) {
-	if c.Request.Method != http.MethodGet {
-		c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "Method not allowed"})
-		return
-	}
-
 	sessionToken, err := c.Cookie("session_token")
 	if err != nil || sessionToken == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Session cookie is empty"})
@@ -85,8 +74,7 @@ func (h *UserHandler) Logout(c *gin.Context) {
 
 	log.Printf("Session Token: %s", sessionToken)
 
-	// err = h.userService.LogoutUser(sessionToken)
-	_, err = h.userService.LogoutUser(sessionToken)
+	_, err = h.userService.LogoutUser(c.Request.Context(), sessionToken)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

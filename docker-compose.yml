@@ -1,8 +1,8 @@
-version: '3.8'
+version: "3.8"
 
 services:
   db:
-    image: postgres:latest
+    image: postgres:16-alpine
     container_name: auth-go-db
     environment:
       POSTGRES_DB: auth-go
@@ -14,7 +14,7 @@ services:
       - "5432:5432"
 
   redis:
-    image: redis:latest
+    image: redis:7-alpine
     container_name: auth-go-redis
     ports:
       - "6379:6379"

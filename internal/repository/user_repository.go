@@ -2,164 +2,130 @@ package repository
 
 import (
 	"auth-go/pkg/utils"
-	_ "auth-go/pkg/utils"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/redis/go-redis/v9"
 	"log"
 	"time"
+
+	"github.com/lib/pq"
+	"github.com/redis/go-redis/v9"
 )
 
-type UserRepository struct {
+var ErrUserAlreadyExists = errors.New("user already exists")
+
+type pgUserRepository struct {
 	db    *sql.DB
 	redis *redis.Client
 }
 
-func NewUserRepository(db *sql.DB, redis *redis.Client) *UserRepository {
-	return &UserRepository{
+func NewPgUserRepository(db *sql.DB, redis *redis.Client) *pgUserRepository {
+	return &pgUserRepository{
 		db:    db,
 		redis: redis,
 	}
 }
 
-func (r *UserRepository) RegisterUser(username string, password string) error {
-	var count int
-	query := `SELECT COUNT(*) FROM users WHERE username = $1`
-	err := r.db.QueryRow(query, username).Scan(&count)
-
+func (r *pgUserRepository) RegisterUser(ctx context.Context, username, password string) error {
+	hashedPassword, err := utils.HashPassword(password)
 	if err != nil {
-		return errors.New("failed to check username existence")
+		return fmt.Errorf("failed to hash password: %w", err)
 	}
-
-	if count > 0 {
-		return errors.New("user already exists")
-	}
-
-	hashedPassword, _ := utils.HashPassword(password)
 
 	insertQuery := `INSERT INTO users (username, password) VALUES ($1, $2)`
-	_, err = r.db.Exec(insertQuery, username, hashedPassword)
+	_, err = r.db.ExecContext(ctx, insertQuery, username, hashedPassword)
 	if err != nil {
-		fmt.Printf("%s", err)
-		return errors.New("failed to insert user")
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+			return ErrUserAlreadyExists
+		}
+		log.Printf("failed to insert user: %v", err)
+		return fmt.Errorf("failed to insert user: %w", err)
 	}
-
 	return nil
 }
 
-func (r *UserRepository) LoginUser(username, password string) (string, error) {
-	ctx := context.Background()
+func (r *pgUserRepository) LoginUser(ctx context.Context, username, password string) (string, error) {
 	var dbpass, userID string
-
 	queryUser := `SELECT id, password FROM users WHERE username = $1`
 	err := r.db.QueryRowContext(ctx, queryUser, username).Scan(&userID, &dbpass)
 	if err != nil {
-		return "", errors.New("username does not exist")
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", errors.New("invalid credentials")
+		}
+		return "", fmt.Errorf("failed to query user: %w", err)
 	}
 
 	if !utils.CheckHash(password, dbpass) {
-		return "", errors.New("invalid password")
+		return "", errors.New("invalid credentials")
 	}
 
 	existingToken, err := r.GetTokenByUserId(ctx, userID)
 	if err != nil {
-		return "", fmt.Errorf("failed to get existing token: %v", err)
+		return "", fmt.Errorf("failed to get existing token: %w", err)
 	}
-
 	if existingToken != "" {
-		log.Println("Retrieved existing token:", existingToken)
+		log.Println("Retrieved existing token for user:", userID)
 		return existingToken, nil
 	}
 
 	sessionToken := utils.GenerateToken(32)
-	log.Println("Generated new token:", sessionToken)
-
-	err = r.redis.HSet(ctx, "user_sessions", sessionToken, userID).Err()
-	if err != nil {
-		return "", fmt.Errorf("failed to store session in Redis: %v", err)
+	if err := r.createSession(ctx, userID, sessionToken); err != nil {
+		return "", fmt.Errorf("failed to store session: %w", err)
 	}
 
-	err = r.redis.Expire(ctx, sessionToken, time.Hour).Err()
-	if err != nil {
-		return "", fmt.Errorf("failed to set session expiration: %v", err)
-	}
-
-	log.Println("Token added to Redis:", sessionToken)
+	log.Println("Generated new session for user:", userID)
 	return sessionToken, nil
 }
 
-func (r *UserRepository) GetTokenByUserId(ctx context.Context, userId string) (string, error) {
-	log.Println("UserID:", userId)
+func (r *pgUserRepository) createSession(ctx context.Context, userID, token string) error {
+	pipe := r.redis.TxPipeline()
+	pipe.Set(ctx, "session:"+token, userID, time.Hour)
+	pipe.Set(ctx, "user_session:"+userID, token, time.Hour)
+	_, err := pipe.Exec(ctx)
+	return err
+}
 
-	var sessionToken string
-	iter := r.redis.HScan(ctx, "user_sessions", 0, "*", 0).Iterator()
-	for iter.Next(ctx) {
-		key := iter.Val()
-		if iter.Next(ctx) {
-			value := iter.Val()
-			if value == userId {
-				sessionToken = key
-				break
-			}
-		}
+func (r *pgUserRepository) GetTokenByUserId(ctx context.Context, userId string) (string, error) {
+	token, err := r.redis.Get(ctx, "user_session:"+userId).Result()
+	if errors.Is(err, redis.Nil) {
+		return "", nil
 	}
-
-	if err := iter.Err(); err != nil {
-		log.Printf("Failed to scan Redis hash: %v", err)
-		return "", err
+	if err != nil {
+		return "", fmt.Errorf("failed to get session token for user %s: %w", userId, err)
 	}
+	return token, nil
+}
 
-	if sessionToken == "" {
-		log.Printf("No session token found for user ID: '%s'", userId)
+func (r *pgUserRepository) GetUserIDByToken(ctx context.Context, sessionToken string) (string, error) {
+	userID, err := r.redis.Get(ctx, "session:"+sessionToken).Result()
+	if errors.Is(err, redis.Nil) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get user for token: %w", err)
+	}
+	return userID, nil
+}
+
+func (r *pgUserRepository) LogoutUser(ctx context.Context, sessionToken string) (string, error) {
+	userID, err := r.GetUserIDByToken(ctx, sessionToken)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve session: %w", err)
+	}
+	if userID == "" {
+		log.Printf("No session found for token: '%s'", sessionToken)
 		return "", nil
 	}
 
-	log.Printf("Retrieved token '%s' for user ID '%s'", sessionToken, userId)
-	return sessionToken, nil
-}
-
-//func (r *UserRepository) GetTokenBySession(ctx context.Context, sessionToken string) (string, error) {
-//	log.Println("Session Token:", sessionToken)
-//
-//	userID, err := r.redis.HGet(ctx, "user_sessions", sessionToken).Result()
-//	if err != nil {
-//		if err == redis.Nil {
-//			log.Printf("No session token found: '%s'", sessionToken)
-//			return "", nil
-//		}
-//		log.Printf("Failed to get token from Redis: '%s', Error %v", sessionToken, err)
-//		return "", err
-//	}
-//
-//	if userID == "" {
-//		log.Printf("Session token not found")
-//		return "", nil
-//	}
-//
-//	log.Printf("Retrieved user ID '%s' for token '%s'", userID, sessionToken)
-//	return userID, nil
-//}
-
-func (r *UserRepository) LogoutUser(sessionToken string) (string, error) {
-	ctx := context.Background()
-
-	userID, err := r.redis.HGet(ctx, "user_sessions", sessionToken).Result()
-	if err != nil {
-		if err == redis.Nil {
-			log.Printf("No session token found: '%s'", sessionToken)
-			return "", nil
-		}
-		return "", err
+	pipe := r.redis.TxPipeline()
+	pipe.Del(ctx, "session:"+sessionToken)
+	pipe.Del(ctx, "user_session:"+userID)
+	if _, err := pipe.Exec(ctx); err != nil {
+		return "", fmt.Errorf("failed to delete session: %w", err)
 	}
 
-	_, err = r.redis.HDel(ctx, "user_sessions", sessionToken).Result()
-	if err != nil {
-		log.Printf("Failed to delete session token: %v", err)
-		return "", err
-	}
-
-	log.Printf("Session token deleted: '%s' for user ID '%s'", sessionToken, userID)
+	log.Printf("Session deleted for user ID '%s'", userID)
 	return userID, nil
 }

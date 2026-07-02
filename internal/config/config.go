@@ -2,18 +2,20 @@ package config
 
 import (
 	"fmt"
-	"github.com/joho/godotenv"
 	"log"
 	"os"
 	"strconv"
 	"time"
 
-	_ "github.com/lib/pq" // Import the PostgreSQL driver
+	"github.com/joho/godotenv"
+
+	_ "github.com/lib/pq"
 )
 
 type Config struct {
-	Addr     string
-	DBConfig DBConfig
+	Addr         string
+	DBConfig     DBConfig
+	CookieSecure bool
 }
 
 type DBConfig struct {
@@ -31,6 +33,10 @@ type RedisConfig struct {
 
 func LoadPostgresConfig() (*Config, error) {
 	err := godotenv.Load()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to load .env file: %v", err)
+	}
 
 	port := os.Getenv("PORT")
 	dbAddr := os.Getenv("DB_ADDR")
@@ -50,6 +56,11 @@ func LoadPostgresConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to parse DB_MAX_CONN_LIFETIME: %v", err)
 	}
 
+	cookieSecure, err := getEnvBool("COOKIE_SECURE", false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse COOKIE_SECURE: %v", err)
+	}
+
 	cfg := &Config{
 		Addr: port,
 		DBConfig: DBConfig{
@@ -58,6 +69,7 @@ func LoadPostgresConfig() (*Config, error) {
 			MaxIdleConns:    maxIdleConns,
 			MaxConnLifetime: maxConnLifetime,
 		},
+		CookieSecure: cookieSecure,
 	}
 
 	return cfg, nil
@@ -110,4 +122,16 @@ func getEnvDuration(key string, defaultValue string) (time.Duration, error) {
 		return 0, fmt.Errorf("invalid duration value for %s: %v", key, err)
 	}
 	return duration, nil
+}
+
+func getEnvBool(key string, defaultValue bool) (bool, error) {
+	valueStr := os.Getenv(key)
+	if valueStr == "" {
+		return defaultValue, nil
+	}
+	value, err := strconv.ParseBool(valueStr)
+	if err != nil {
+		return false, fmt.Errorf("invalid boolean value for %s: %v", key, err)
+	}
+	return value, nil
 }
