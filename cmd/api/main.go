@@ -5,34 +5,35 @@ import (
 	"auth-go/internal/handler"
 	"auth-go/internal/repository"
 	"auth-go/internal/service"
-	"fmt"
-	"github.com/gin-gonic/gin"
 	"log"
+
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
 
 	cfg, err := config.LoadPostgresConfig()
 	if err != nil {
-		fmt.Printf("Failed to load Postgress config: %v\n", err)
+		log.Fatalf("Failed to load Postgres Config")
 		return
 	}
 
 	db, err := config.InitPostgres(cfg)
 	if err != nil {
-		fmt.Printf("Failed to connect to Postgres database: %v\n", err)
+		log.Fatalf("Failed to connect to Postgres database: %v\n", err)
 	}
 
 	rediscfg, err := config.LoadRedisConfig()
 	if err != nil {
-		fmt.Printf("Failed to load Redis config %v\n", err)
+		log.Fatalf("Failed to load Redis config %v\n", err)
 	}
 
 	redisClient, err := config.InitRedis(rediscfg)
+
 	defer redisClient.Close()
 
 	if err != nil {
-		fmt.Printf("Failed to init redis: %v\n", err)
+		log.Fatalf("Failed to init redis: %v\n", err)
 	}
 
 	db, err = config.InitDB(db)
@@ -54,7 +55,7 @@ func main() {
 		api.GET("/logout", userHandler.Logout)
 	}
 
-	fmt.Printf("Starting server on %s\n", cfg.Addr)
+	log.Printf("Starting server on %s\n", cfg.Addr)
 	if err := router.Run(cfg.Addr); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
